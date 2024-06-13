@@ -12,6 +12,9 @@ import pickle
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
 import gc
+import time
+import datetime
+
 initInputDict = {'D1': 4479866.23623163,
                  'D2': 4483912.32937843,
                  'D3': 4487818.9020719,
@@ -44,16 +47,27 @@ st.title("UCovid-19PMFit")
 st.write("  The researcher is interested in applying the concepts of NLP and transfer learning to improve the ability to forecast the time series of the COVID-19 pandemic spread. The proposed approach involves designing a concept of learning through a General domain of time series patterns from multiple countries, totaling over 200 countries. This concept is referred to as the Universal Covid-19 Time Series Pattern Model Fine-tuning for Covid-19 Time Series Forecasting (UCovid-19PMFit). Subsequently, this model is fine-tuned to learn and forecast the pandemic spread in countries of interest. The 15 countries for which the model is fine-tuned to forecast the pandemic spread are Thailand, Malaysia, Japan, India, Vietnam, Norway, United Kingdom, Italy, Spain, France, Canada, Mexico, Cuba, Brazil, and Argentina.")
 st.write('-----------')
 
+# Get today's date
+today = datetime.date.today()
+
 st.subheader("Input data", divider='rainbow')
-headCol1, headCol2, _, _ = st.columns(4)
+headCol1, headCol2, headCol3, headCol4 = st.columns(4)
 with headCol1:
     country = st.selectbox("Country:", countryList, index=177)
 
 with headCol2:
     status = st.selectbox("Status", ["Confirmed", "Deaths"])
 
+with headCol3:
+
+    startDate = st.date_input("Start date", today)
+
+with headCol4:
+    # Calculate the date 14 days from today
+    endDate = st.date_input("End date", today + datetime.timedelta(days=13))
+
 nextSteps = st.slider(
-    label="Next steps (days)", min_value=1, max_value=30, step=1)
+    label="Next steps (days)", min_value=1, max_value=90, step=1)
 
 
 st.write(f'{status} over 14 days')
@@ -253,89 +267,100 @@ class StreamlitCallback(tf.keras.callbacks.Callback):
         #     f"Learning Rate: {tf.keras.backend.get_value(self.model.optimizer.lr):.6f}")
 
 
+def train_and_save_model(baseModelName, Final_model, DataX_train, y_train, country, status):
+    st.write(baseModelName)
+
+    BatchSize = 128
+    StartEpochs = 1
+    Epochs = 1
+
+    model_path = f"Models/{country}_{baseModelName}_{status}.h5"
+    opt = tf.keras.optimizers.Adam(learning_rate=1e-2)
+
+    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
+        monitor='val_loss',
+        factor=0.5,
+        patience=15,
+        min_lr=1e-15,
+        verbose=0
+    )
+
+    lr_scheduler = tf.keras.callbacks.LearningRateScheduler(
+        lambda epoch: lr_schedule(epoch)
+    )
+
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(
+        filepath=model_path,
+        save_best_only=True,
+        save_weights_only=False,
+        monitor='val_loss', mode='min',
+        save_freq="epoch"
+    )
+
+    Final_model.compile(loss='mean_squared_error', optimizer=opt)
+
+    # Custom callback for Streamlit
+    streamlit_callback = StreamlitCallback(StartEpochs, 'training_display')
+
+    hist = Final_model.fit(
+        DataX_train,
+        y_train,
+        validation_split=0.2,
+        batch_size=BatchSize,
+        epochs=StartEpochs,
+        verbose=0,
+        callbacks=[checkpoint, lr_scheduler, streamlit_callback],
+        shuffle=True
+    )
+
+    # Additional garbage collection to ensure memory is freed
+    gc.collect()
+    opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
+    Final_model.compile(loss='mean_squared_error',
+                        optimizer=opt)
+
+    # Custom callback for Streamlit
+    streamlit_callback = StreamlitCallback(Epochs, 'training_display')
+
+    hist = Final_model.fit(DataX_train,
+                           y_train,
+                           validation_split=0.2,
+                           batch_size=BatchSize,
+                           epochs=Epochs,
+                           verbose=0,
+                           callbacks=[checkpoint,
+                                      reduce_lr,
+                                      #   lr_logger,
+                                      streamlit_callback
+                                      ],
+                           shuffle=True)
+
+    best_model = tf.keras.models.load_model(model_path)
+
+    baseModelDict[baseModelName] = best_model
+
+    # Clear the session to free up memory
+    tf.keras.backend.clear_session()
+
+    # Delete temporary files
+    if os.path.exists(model_path):
+        os.remove(model_path)
+
+    # Delete objects
+    del Final_model, opt, streamlit_callback, hist, reduce_lr, lr_scheduler, checkpoint, best_model
+
+    gc.collect()
+    time.sleep(1)
+    return baseModelDict
+
+
 trainBtn = st.button('Submit')
 if trainBtn:
     baseModelDict = dict()
+
     for baseModelName, Final_model in pretrainModelDict[status]:
-
-        # list_loss_train = []
-        # list_loss_val = []
-        # list_lr = []
-        st.write(baseModelName)
-
-        BatchSize = 128
-        StartEpochs = 30
-        Epochs = 60
-
-        model_path = f"Models/{country}_{baseModelName}_{status}.h5"
-        opt = tf.keras.optimizers.Adam(learning_rate=1e-2)
-        reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_loss',  # Metric to monitor
-            factor=0.5,          # Factor by which the learning rate will be reduced
-            # Number of epochs with no improvement after which learning rate will be reduced
-            patience=15,
-            min_lr=1e-15,         # Lower bound on the learning rate
-            verbose=0            # Verbosity mode
-        )
-
-        lr_scheduler = tf.keras.callbacks.LearningRateScheduler(
-            lambda epoch: lr_schedule(epoch))
-
-        checkpoint = tf.keras.callbacks.ModelCheckpoint(
-            filepath=model_path,
-            save_best_only=True,
-            save_weights_only=False,
-            monitor='val_loss', mode='min',
-            save_freq="epoch")
-
-        # lr_logger = LearningRateLogger()
-
-        Final_model.compile(loss='mean_squared_error',
-                            optimizer=opt)
-
-        # Custom callback for Streamlit
-        streamlit_callback = StreamlitCallback(StartEpochs, 'training_display')
-
-        hist = Final_model.fit(DataX_train,
-                               y_train,
-                               validation_split=0.2,
-                               batch_size=BatchSize,
-                               epochs=StartEpochs,
-                               verbose=0,
-                               callbacks=[checkpoint,
-                                          lr_scheduler,
-                                          #   lr_logger,
-                                          streamlit_callback
-                                          ],
-                               shuffle=True)
-
-        opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
-        Final_model.compile(loss='mean_squared_error',
-                            optimizer=opt)
-
-        # Custom callback for Streamlit
-        streamlit_callback = StreamlitCallback(Epochs, 'training_display')
-
-        hist = Final_model.fit(DataX_train,
-                               y_train,
-                               validation_split=0.2,
-                               batch_size=BatchSize,
-                               epochs=Epochs,
-                               verbose=0,
-                               callbacks=[checkpoint,
-                                          reduce_lr,
-                                          #   lr_logger,
-                                          streamlit_callback
-                                          ],
-                               shuffle=True)
-
-        best_model = tf.keras.models.load_model(model_path)
-
-        baseModelDict[baseModelName] = best_model
-
-        os.remove(model_path)
-        del best_model, Final_model, opt, streamlit_callback, hist
-        gc.collect()
+        baseModelDict = train_and_save_model(baseModelName, Final_model,
+                                             DataX_train, y_train, country, status)
 
     def MinMaxScaleInverse(y, minScale, maxScale, col):
         if col == 'Confirmed':
@@ -426,13 +451,17 @@ if trainBtn:
         lower_bound = [i - 1.96 * std_dev for i in data]
 
         # Create an x-axis representing the index of the data points
-        x = list(range(1, len(data) + 1))
+        # x = list(range(1, len(data) + 1))
+
+        # Create a list of dates from startDate to startDate + 13 days
+        x_dates = [startDate +
+                   datetime.timedelta(days=i) for i in range(len(data))]
 
         fig = go.Figure()
 
         # Add shaded area between the bounds
         fig.add_trace(go.Scatter(
-            x=x + x[::-1],
+            x=x_dates + x_dates[::-1],
             y=upper_bound + lower_bound[::-1],
             fill='toself',
             fillcolor='rgba(255, 0, 0, 0.05)',
@@ -441,16 +470,22 @@ if trainBtn:
             name='Confidence Interval'
         ))
 
+        fig.add_trace(go.Scatter(x=x_dates, y=upper_bound,
+                      mode='lines', showlegend=False, name="Upper bound", line=dict(color='red', width=0.5)))
+
+        fig.add_trace(go.Scatter(x=x_dates, y=lower_bound,
+                      mode='lines', showlegend=False, name="Lower bound", line=dict(color='red', width=0.5)))
+
         # Add trace for the data points
         fig.add_trace(go.Scatter(
-            x=x[:-nextSteps], y=data[:-nextSteps], mode='lines+markers', name='Observed'))
+            x=x_dates[:-nextSteps], y=data[:-nextSteps], mode='lines+markers', name='Observed'))
 
         fig.add_trace(go.Scatter(
-            x=x[-nextSteps:], y=data[-nextSteps:], mode='lines+markers', name=modelName))
+            x=x_dates[-nextSteps:], y=data[-nextSteps:], mode='lines+markers', name=modelName))
 
         # Add trace for the mean
         fig.add_trace(go.Scatter(
-            x=x, y=[mean]*len(data), mode='lines', name='Mean', line=dict(color='green', dash='dash')))
+            x=x_dates, y=[mean]*len(data), mode='lines', name='Mean', line=dict(color='green', dash='dash')))
 
         # Update layout
         fig.update_layout(
@@ -472,3 +507,6 @@ if trainBtn:
 
         # Show the figure
         st.plotly_chart(fig, use_container_width=True)
+
+        st.write(f"Mean: {round(mean,1)}")
+        st.write(f"variance: {round(variance,1)}")
