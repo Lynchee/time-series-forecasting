@@ -342,8 +342,8 @@ if trainBtn:
         # list_lr = []
         st.write(baseModelName)
         BatchSize = 128
-        StartEpochs = 1
-        Epochs = 1
+        StartEpochs = 30
+        Epochs = 60
 
         model_path = f"Models/{country}_{baseModelName}_{status}.h5"
         opt = tf.keras.optimizers.Adam(learning_rate=1e-2)
