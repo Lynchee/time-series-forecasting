@@ -11,7 +11,7 @@ import os
 import pickle
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
-
+import gc
 initInputDict = {'D1': 4479866.23623163,
                  'D2': 4483912.32937843,
                  'D3': 4487818.9020719,
@@ -43,9 +43,7 @@ dataDict, countryList = getDataDict()
 st.title("UCovid-19PMFit")
 st.write("  The researcher is interested in applying the concepts of NLP and transfer learning to improve the ability to forecast the time series of the COVID-19 pandemic spread. The proposed approach involves designing a concept of learning through a General domain of time series patterns from multiple countries, totaling over 200 countries. This concept is referred to as the Universal Covid-19 Time Series Pattern Model Fine-tuning for Covid-19 Time Series Forecasting (UCovid-19PMFit). Subsequently, this model is fine-tuned to learn and forecast the pandemic spread in countries of interest. The 15 countries for which the model is fine-tuned to forecast the pandemic spread are Thailand, Malaysia, Japan, India, Vietnam, Norway, United Kingdom, Italy, Spain, France, Canada, Mexico, Cuba, Brazil, and Argentina.")
 st.write('-----------')
-# countryList = ['Thailand', 'UK']
-# print([ind for ind, _country in enumerate(
-#     countryList) if _country == 'Thailand'][0])
+
 st.subheader("Input data", divider='rainbow')
 headCol1, headCol2, _, _ = st.columns(4)
 with headCol1:
@@ -118,87 +116,6 @@ with colD14:
 
 st.write('-----------')
 # ---------------------------- Preproces data --------------------------------
-# df_Confirmed = pd.read_csv(
-#     'UCovid-19PMFit/data/Preparing_time_series_covid19_confirmed_global.csv')
-# df_Deaths = pd.read_csv(
-#     'UCovid-19PMFit/data/Preparing_time_series_covid19_deaths_global.csv')
-
-# Country = country
-# df_Confirmed = df_Confirmed[df_Confirmed['Country/Region']
-#                             == Country].drop(columns="Country/Region")
-# df_Deaths = df_Deaths[df_Deaths['Country/Region']
-#                       == Country].drop(columns="Country/Region")
-
-# df_Confirmed = df_Confirmed.T
-# df_Confirmed.columns = ["Confirmed"]
-# df_Confirmed_train = df_Confirmed.iloc[:-30]
-# df_Confirmed_test = df_Confirmed.iloc[-45:]
-
-# df_Deaths = df_Deaths.T
-# df_Deaths.columns = ["Deaths"]
-# df_Deaths_train = df_Deaths.iloc[:-30]
-# df_Deaths_test = df_Deaths.iloc[-45:]
-
-# data = pd.concat([df_Confirmed_train, df_Deaths_train], axis=1)
-
-
-# def MinMaxScale(df):
-#     df_norm = pd.DataFrame([])
-#     min = []
-#     max = []
-#     MinMaxScaleColumnName = []
-#     for c in df.columns:
-#         new_df = (df[[c]]-df[[c]].min())/(df[[c]].max()-df[[c]].min())
-#         min.append(df[[c]].min())
-#         max.append(df[[c]].max())
-#         MinMaxScaleColumnName.append(c)
-#         df_norm = pd.concat([df_norm, new_df], axis=1)
-#     return df_norm, min, max
-
-
-# data, minScale, maxScale = MinMaxScale(data)
-# data_test = pd.concat([df_Confirmed_test, df_Deaths_test], axis=1)
-
-
-# def MinMaxScaleForTest(df, minScale, maxScale):
-#     df_norm = pd.DataFrame([])
-#     for i, c in enumerate(df.columns):
-#         new_df = (df[[c]]-minScale[i][c])/(maxScale[i][c]-minScale[i][c])
-#         df_norm = pd.concat([df_norm, new_df], axis=1)
-
-#     return df_norm
-
-
-# data_test = MinMaxScaleForTest(data_test, minScale, maxScale)
-
-# sequence_length = 14
-
-
-# def generate_data(X, sequence_length=14, step=1):
-#     X_local = []
-#     y_local = []
-#     for start in range(0, len(X) - sequence_length-1, step):
-#         end = start + sequence_length
-#         X_local.append(X[start:end])
-#         y_local.append(X[end][0])
-#     return np.array(X_local), np.array(y_local)
-
-
-# X_sequence, y = generate_data(data.loc[:, ["Confirmed"]].values)
-# X_sequence_test, y_test = generate_data(data_test.loc[:, ["Deaths"]].values)
-
-
-# X_sequence, y = shuffle(X_sequence, y, random_state=0)
-# X_sequence.shape, y.shape
-
-# DataX_train, y_train = X_sequence, y
-# DataX_valid, y_valid = X_sequence_test, y_test
-
-
-# print(DataX_train.shape, DataX_valid.shape)
-# print(y_train.shape, y_test.shape)
-
-
 # Load data
 DataX_train = dataDict[country]['xTrain']
 y_train = dataDict[country]['yTrain']
@@ -238,31 +155,35 @@ DataX_valid = np.array([data_test])
 
 # ----------------------------------- Load pretrain model -----------------------------
 @st.cache_resource
-def getPretrainModel():
+def getPretrainModel(status):
     # Load the trained model
     # Fetch data from URL here, and then clean it up.
     pretrainModelDict = dict()
-    pretrainModelDict["Deaths"] = [('LSTM', tf.keras.models.load_model(
-        'UCovid-19PMFit/weights/Deaths/ModelWeight_LSTM_PretrainedModel(Deaths).h5')),
-        ('GRU', tf.keras.models.load_model(
-            'UCovid-19PMFit/weights/Deaths/ModelWeight_GRU_PretrainedModel(Deaths).h5')),
-        ('BiLSTM', tf.keras.models.load_model(
-            'UCovid-19PMFit/weights/Deaths/ModelWeight_BiLSTM_PretrainedModel(Deaths).h5')),
-        ('BiGRU', tf.keras.models.load_model(
-            'UCovid-19PMFit/weights/Deaths/ModelWeight_BiGRU_PretrainedModel(Deaths).h5'))]
 
-    pretrainModelDict['Confirmed'] = [('LSTM', tf.keras.models.load_model(
-        'UCovid-19PMFit/weights/Confirmed/ModelWeight_LSTM_PretrainedModel(Confirmed).h5')),
-        ('GRU', tf.keras.models.load_model(
-            'UCovid-19PMFit/weights/Confirmed/ModelWeight_GRU_PretrainedModel(Confirmed).h5')),
-        ('BiLSTM', tf.keras.models.load_model(
-            'UCovid-19PMFit/weights/Confirmed/ModelWeight_BiLSTM_PretrainedModel(Confirmed).h5')),
-        ('BiGRU', tf.keras.models.load_model(
-            'UCovid-19PMFit/weights/Confirmed/ModelWeight_BiGRU_PretrainedModel(Confirmed).h5'))]
+    if status == "Deaths":
+        pretrainModelDict["Deaths"] = [
+            ('LSTM', tf.keras.models.load_model(
+                'UCovid-19PMFit/weights/Deaths/ModelWeight_LSTM_PretrainedModel(Deaths).h5')),
+            ('GRU', tf.keras.models.load_model(
+                'UCovid-19PMFit/weights/Deaths/ModelWeight_GRU_PretrainedModel(Deaths).h5')),
+            ('BiLSTM', tf.keras.models.load_model(
+                'UCovid-19PMFit/weights/Deaths/ModelWeight_BiLSTM_PretrainedModel(Deaths).h5')),
+            ('BiGRU', tf.keras.models.load_model(
+                'UCovid-19PMFit/weights/Deaths/ModelWeight_BiGRU_PretrainedModel(Deaths).h5'))]
+    elif status == 'Confirmed':
+        pretrainModelDict['Confirmed'] = [
+            ('LSTM', tf.keras.models.load_model(
+                'UCovid-19PMFit/weights/Confirmed/ModelWeight_LSTM_PretrainedModel(Confirmed).h5')),
+            ('GRU', tf.keras.models.load_model(
+                'UCovid-19PMFit/weights/Confirmed/ModelWeight_GRU_PretrainedModel(Confirmed).h5')),
+            ('BiLSTM', tf.keras.models.load_model(
+                'UCovid-19PMFit/weights/Confirmed/ModelWeight_BiLSTM_PretrainedModel(Confirmed).h5')),
+            ('BiGRU', tf.keras.models.load_model(
+                'UCovid-19PMFit/weights/Confirmed/ModelWeight_BiGRU_PretrainedModel(Confirmed).h5'))]
     return pretrainModelDict
 
 
-pretrainModelDict = getPretrainModel()
+pretrainModelDict = getPretrainModel(status)
 
 
 # ------------------------------------- Train model -----------------------------------
@@ -341,6 +262,7 @@ if trainBtn:
         # list_loss_val = []
         # list_lr = []
         st.write(baseModelName)
+
         BatchSize = 128
         StartEpochs = 30
         Epochs = 60
@@ -353,7 +275,7 @@ if trainBtn:
             # Number of epochs with no improvement after which learning rate will be reduced
             patience=15,
             min_lr=1e-15,         # Lower bound on the learning rate
-            verbose=1            # Verbosity mode
+            verbose=0            # Verbosity mode
         )
 
         lr_scheduler = tf.keras.callbacks.LearningRateScheduler(
@@ -366,7 +288,7 @@ if trainBtn:
             monitor='val_loss', mode='min',
             save_freq="epoch")
 
-        lr_logger = LearningRateLogger()
+        # lr_logger = LearningRateLogger()
 
         Final_model.compile(loss='mean_squared_error',
                             optimizer=opt)
@@ -379,17 +301,13 @@ if trainBtn:
                                validation_split=0.2,
                                batch_size=BatchSize,
                                epochs=StartEpochs,
-                               verbose=2,
+                               verbose=0,
                                callbacks=[checkpoint,
                                           lr_scheduler,
-                                          lr_logger,
+                                          #   lr_logger,
                                           streamlit_callback
                                           ],
                                shuffle=True)
-
-        # list_loss_train = list_loss_train + hist.history['loss']
-        # list_loss_val = list_loss_val + hist.history['val_loss']
-        # list_lr = list_lr + hist.history['lr']
 
         opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
         Final_model.compile(loss='mean_squared_error',
@@ -403,53 +321,21 @@ if trainBtn:
                                validation_split=0.2,
                                batch_size=BatchSize,
                                epochs=Epochs,
-                               verbose=2,
+                               verbose=0,
                                callbacks=[checkpoint,
                                           reduce_lr,
-                                          lr_logger,
+                                          #   lr_logger,
                                           streamlit_callback
                                           ],
                                shuffle=True)
 
-        # list_loss_train = list_loss_train + hist.history['loss']
-        # list_loss_val = list_loss_val + hist.history['val_loss']
-        # list_lr = list_lr + hist.history['lr']
-
-        # history = {"loss": list_loss_train,
-        #            'val_loss': list_loss_val,
-        #            'lr': list_lr}
-
         best_model = tf.keras.models.load_model(model_path)
 
         baseModelDict[baseModelName] = best_model
-        # y_pred = best_model.predict(X_sequence_test)
-        # y_pred = y_pred.flatten()
 
-        # y_pred = MinMaxScaleInverse(y_pred, minScale, maxScale, "Deaths", 1)
-        # y_test = MinMaxScaleInverse(y_test, minScale, maxScale, "Deaths", 1)
-
-        # st.write(y_pred)
-        # st.write(y_test)
-        # st.title("Results")
-
-        # --------------------------------------- Results -------------------------------------
-        # testScore_RMSE = math.sqrt(mean_squared_error(y_test, y_pred))
-        # st.write('Test Score: %.5f RMSE' % (testScore_RMSE))
-
-        # testScore_MAE = mean_absolute_error(y_test, y_pred)
-        # st.write('Test Score: %.5f MAE' % (testScore_MAE))
-
-        # testScore_MAPE = mean_absolute_percentage_error(y_test, y_pred)
-        # st.write('Test Score: %.5f MAPE' % (testScore_MAPE))
-
-        # testScore_SMAPE = S_mean_absolute_percentage_error(y_test, y_pred)
-        # st.write('Test Score: %.5f SMAPE' % (testScore_SMAPE))
-
-        # testScore_RMSLE = root_mean_squared_log_error(y_test, y_pred)
-        # st.write('Test Score: %.5f RMSLE' % (testScore_RMSLE))
-
-        # testScore_EV = explained_variance(y_test, y_pred)
-        # st.write('Test Score: %.5f EV' % (testScore_EV))
+        os.remove(model_path)
+        del best_model, Final_model, opt, streamlit_callback, hist
+        gc.collect()
 
     def MinMaxScaleInverse(y, minScale, maxScale, col):
         if col == 'Confirmed':
@@ -460,30 +346,9 @@ if trainBtn:
         y = y*(maxScale[c][col]-minScale[c][col])+minScale[c][col]
         return y
 
-    # print('x', DataX_train[:1, :, :])
-    # print('rawx', MinMaxScaleInverse(
-    #     DataX_train[:1, :, :].flatten(), minScale, maxScale, status))
-
-    # x = np.concatenate((DataX_train[:1, :, :],
-    #                    y_train[:1].reshape(1, 1, 1)), axis=1)
-    # print('allx', x)
-    # print('rawallx', MinMaxScaleInverse(
-    #     x.flatten(), minScale, maxScale, status))
-
-    # for modelName in baseModelDict.keys():
-
-    #     pred = baseModelDict[modelName].predict(
-    #         DataX_train[:1, :, :], verbose=0)
-    #     pred = np.concatenate(
-    #         (DataX_train[:1, :, :], pred.reshape(1, 1, 1)), axis=1)
-
-    #     print(modelName)
-    #     print('pred', pred)
-    #     print('rawPred', MinMaxScaleInverse(
-    #         pred.flatten(), minScale, maxScale, status)
-        # )
-    predDict = {modelName: DataX_valid for modelName in baseModelDict.keys()}
-    for modelName in baseModelDict.keys():
+    modelNames = baseModelDict.keys()
+    predDict = {modelName: DataX_valid for modelName in modelNames}
+    for modelName in modelNames:
 
         for day in range(nextSteps):
             _DataX_valid = predDict[modelName][:, -14:, :]
@@ -498,6 +363,8 @@ if trainBtn:
         predDict[modelName] = MinMaxScaleInverse(
             predDict[modelName].flatten(), minScale, maxScale, status)
 
+    del baseModelDict, pretrainModelDict
+    gc.collect()
     # ----------------------------- Results -----------------------------------
     st.write('-----------')
 
@@ -516,7 +383,7 @@ if trainBtn:
     fig.add_trace(go.Scatter(
         x=initX, y=predDict['LSTM'][:-nextSteps], mode='lines+markers', name='Inputs'))
 
-    for modelName in baseModelDict.keys():
+    for modelName in modelNames:
         fig.add_trace(go.Scatter(
             x=predX, y=predDict[modelName][-nextSteps:], mode='lines+markers', name=modelName))
 
@@ -541,7 +408,7 @@ if trainBtn:
     # Plot!
     st.plotly_chart(fig, use_container_width=True)
 
-    for modelName in baseModelDict.keys():
+    for modelName in modelNames:
 
         data = predDict[modelName]
 
