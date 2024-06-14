@@ -8,14 +8,14 @@ from sklearn.metrics import mean_absolute_error
 from tensorflow.keras import backend as K
 import math
 import os
-import pickle
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
 import gc
 import time
 import datetime
 import locale
-
+np.random.seed(1992)
+tf.keras.utils.set_random_seed(1992)
 locale.setlocale(locale.LC_ALL, '')
 
 initInputDict = {'D1': 4479866.23623163,
@@ -36,15 +36,17 @@ initInputDict = {'D1': 4479866.23623163,
 
 
 @st.cache_resource
-def getDataDict():
-    with open('dataDict.pickle', 'rb') as handle:
-        data = pickle.load(handle)
-        # Get country list
-        countryList = data.keys()
-        return data, countryList
+def getPretrainData():
+    df_Confirmed = pd.read_csv(
+        'UCovid-19PMFit/data/Preparing_time_series_covid19_confirmed_global.csv')
+    df_Deaths = pd.read_csv(
+        'UCovid-19PMFit/data/Preparing_time_series_covid19_deaths_global.csv')
+
+    countryList = df_Confirmed['Country/Region'].values
+    return df_Confirmed, df_Deaths, countryList
 
 
-dataDict, countryList = getDataDict()
+df_Confirmed, df_Deaths, countryList = getPretrainData()
 
 # Function to display centered title using CSS
 
@@ -162,16 +164,73 @@ with colD14:
                              placeholder="", label_visibility="visible", key='D14')
 
 st.write('-----------')
+
+
 # ---------------------------- Preproces data --------------------------------
-# Load data
-DataX_train = dataDict[country]['xTrain']
-y_train = dataDict[country]['yTrain']
-X_sequence_test = dataDict[country]['xTest']
-y_test = dataDict[country]['yTest']
-minScale = dataDict[country]['minScale']
-maxScale = dataDict[country]['maxScale']
+def MinMaxScale(df):
+    df_norm = pd.DataFrame([])
+    min = []
+    max = []
+    MinMaxScaleColumnName = []
+    for c in df.columns:
+        new_df = (df[[c]]-df[[c]].min())/(df[[c]].max()-df[[c]].min())
+        min.append(df[[c]].min())
+        max.append(df[[c]].max())
+        MinMaxScaleColumnName.append(c)
+
+        df_norm = pd.concat([df_norm, new_df], axis=1)
+
+    return df_norm, min, max
 
 
+def MinMaxScaleForTest(df, minScale, maxScale):
+    df_norm = pd.DataFrame([])
+    for i, c in enumerate(df.columns):
+        new_df = (df[[c]]-minScale[i][c])/(maxScale[i][c]-minScale[i][c])
+        df_norm = pd.concat([df_norm, new_df], axis=1)
+
+    return df_norm
+
+
+def generate_data(X, sequence_length=14, step=1):
+    X_local = []
+    y_local = []
+    for start in range(0, len(X) - sequence_length-1, step):
+        end = start + sequence_length
+        X_local.append(X[start:end])
+        y_local.append(X[end][0])
+    return np.array(X_local), np.array(y_local)
+
+
+_df_Confirmed = df_Confirmed[df_Confirmed['Country/Region']
+                             == country].drop(columns="Country/Region")
+_df_Deaths = df_Deaths[df_Deaths['Country/Region']
+                       == country].drop(columns="Country/Region")
+
+_df_Confirmed = _df_Confirmed.T
+_df_Confirmed.columns = ["Confirmed"]
+df_Confirmed_train = _df_Confirmed.iloc[:-30]
+df_Confirmed_test = _df_Confirmed.iloc[-45:]
+
+_df_Deaths = _df_Deaths.T
+_df_Deaths.columns = ["Deaths"]
+df_Deaths_train = _df_Deaths.iloc[:-30]
+df_Deaths_test = _df_Deaths.iloc[-45:]
+
+data = pd.concat([df_Confirmed_train, df_Deaths_train], axis=1)
+data, minScale, maxScale = MinMaxScale(data)
+
+data_test = pd.concat([df_Confirmed_test, df_Deaths_test], axis=1)
+data_test = MinMaxScaleForTest(data_test, minScale, maxScale)
+
+X_sequence, y = generate_data(data.loc[:, [status]].values)
+X_sequence_test, y_test = generate_data(data_test.loc[:, [status]].values)
+
+
+X_sequence, y = shuffle(X_sequence, y, random_state=0)
+DataX_train, y_train = X_sequence, y
+
+# prerpocessing the input data before fine-tuning a pretrained model
 numberInputList = []
 for i in range(14):
     numberInputList.append(st.session_state[f'D{i+1}'])
@@ -196,7 +255,6 @@ def MinMaxScaleForTest(df, minScale, maxScale, status):
 
 
 data_test = MinMaxScaleForTest(_data_test, minScale, maxScale, status)
-
 DataX_valid = np.array([data_test])
 
 
