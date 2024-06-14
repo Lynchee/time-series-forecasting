@@ -46,8 +46,38 @@ def getDataDict():
 
 dataDict, countryList = getDataDict()
 
-st.title("UCovid-19PMFit")
-st.write("  The researcher is interested in applying the concepts of NLP and transfer learning to improve the ability to forecast the time series of the COVID-19 pandemic spread. The proposed approach involves designing a concept of learning through a General domain of time series patterns from multiple countries, totaling over 200 countries. This concept is referred to as the Universal Covid-19 Time Series Pattern Model Fine-tuning for Covid-19 Time Series Forecasting (UCovid-19PMFit). Subsequently, this model is fine-tuned to learn and forecast the pandemic spread in countries of interest. The 15 countries for which the model is fine-tuned to forecast the pandemic spread are Thailand, Malaysia, Japan, India, Vietnam, Norway, United Kingdom, Italy, Spain, France, Canada, Mexico, Cuba, Brazil, and Argentina.")
+# Function to display centered title using CSS
+
+
+def centered_title(title):
+    st.markdown(
+        f'<h2 style="text-align: center;">{title}</h2>', unsafe_allow_html=True)
+
+
+def section_title(text, h='h4'):
+    st.markdown(
+        f'<{h} style="text-align: left;">{text}</{h}>', unsafe_allow_html=True)
+
+# Function to add an indent to text using Markdown
+
+
+def indented_text(text, indent_level=1):
+    # Four spaces per level of indentation
+    indent_spaces = '&nbsp;' * 4 * indent_level
+    indented_text = f"{indent_spaces}{text}"
+    st.markdown(indented_text, unsafe_allow_html=True)
+
+
+centered_title(
+    "Universal Covid-19 Time Series Pattern Model Fine-tuning for Covid-19 Time Series Forecasting (UCovid-19PMFit)")
+
+indented_text("The researcher is interested in applying the concepts of Natural language processing (NLP) and transfer learning to improve the ability to forecast the time series of the COVID-19 pandemic spread. The proposed approach involves designing a concept of learning through a general domain of time series patterns from multiple countries, totaling over 200 countries. This concept is referred to as the Universal Covid-19 Time Series Pattern Model Fine-tuning for Covid-19 Time Series Forecasting (UCovid-19PMFit). Subsequently, this model is fine-tuned to learn and forecast the pandemic spread in countries of interest.", indent_level=4)
+
+st.image('cover.jpg')
+
+indented_text("From the figure above, the methodology involves collecting COVID-19 confirmed/death case data from several countries and randomly selecting time series patterns from this data. These patterns are labeled as either 'Next Pattern' (1) or 'Not Next Pattern' (0) based on their sequence continuity. A universal pattern prediction model is then pre-trained using LSTM/GRU/BiLSTM/BiGRU networks for binary classification. This universal model is then fine-tuned for a specific target country through transfer learning, allowing the model to leverage the learned features and improve prediction accuracy for the target country's COVID-19 case trends.", indent_level=4)
+indented_text("This web application applied this concept to forecast the target country showing the graphs of validation loss and predicted graph of confirmed/death cases in the next steps.", indent_level=4)
+
 st.write('-----------')
 
 # Get today's date
@@ -271,10 +301,12 @@ class StreamlitCallback(tf.keras.callbacks.Callback):
 
 
 def train_and_save_model(model_path, Final_model, DataX_train, y_train):
+    list_loss_train = []
+    list_loss_val = []
 
     BatchSize = 128
-    StartEpochs = 30
-    Epochs = 150
+    StartEpochs = 1
+    Epochs = 1
 
     opt = tf.keras.optimizers.Adam(learning_rate=1e-2)
 
@@ -315,6 +347,9 @@ def train_and_save_model(model_path, Final_model, DataX_train, y_train):
         shuffle=True
     )
 
+    list_loss_train = list_loss_train + hist.history['loss']
+    list_loss_val = list_loss_val + hist.history['val_loss']
+
     # Additional garbage collection to ensure memory is freed
     gc.collect()
     opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
@@ -334,14 +369,16 @@ def train_and_save_model(model_path, Final_model, DataX_train, y_train):
                                       streamlit_callback],
                            shuffle=True)
 
-    # Clear session
-    K.clear_session()
+    list_loss_train = list_loss_train + hist.history['loss']
+    list_loss_val = list_loss_val + hist.history['val_loss']
 
+    history = {"loss": list_loss_train,
+               'val_loss': list_loss_val}
     # Clear the session to free up memory
     tf.keras.backend.clear_session()
 
     # Delete objects
-    del Final_model, opt, streamlit_callback, hist, reduce_lr, lr_scheduler, checkpoint
+    del Final_model, opt, streamlit_callback, hist, reduce_lr, lr_scheduler, checkpoint, list_loss_train, list_loss_val
     Final_model = None
     opt = None
     streamlit_callback = None
@@ -351,25 +388,68 @@ def train_and_save_model(model_path, Final_model, DataX_train, y_train):
     checkpoint = None
     gc.collect()
     time.sleep(1)
+    return history
 
 
-trainBtn = st.button('Submit')
-if trainBtn:
+submitBtn = st.button('Submit')
+
+if submitBtn:
+
     baseModelDict = dict()
-
+    baseHistoryDict = dict()
     for baseModelName, Final_model in pretrainModelDict[status]:
 
         st.write(baseModelName)
         model_path = f"Models/{country}_{baseModelName}_{status}.h5"
 
-        train_and_save_model(model_path, Final_model, DataX_train, y_train)
+        history = train_and_save_model(
+            model_path, Final_model, DataX_train, y_train)
 
         if os.path.exists(model_path):
+
             best_model = tf.keras.models.load_model(model_path)
             baseModelDict[baseModelName] = best_model
+            baseHistoryDict[baseModelName] = history
             del best_model
             os.remove(model_path)
             gc.collect()
+
+    modelNames = baseModelDict.keys()
+
+    # Create the figure
+    fig = go.Figure()
+    x = list(range(1, len(baseHistoryDict["LSTM"]['val_loss'])+1))
+    for modelName in modelNames:
+
+        fig.add_trace(go.Scatter(
+            x=x, y=baseHistoryDict[modelName]['val_loss'], mode='lines+markers', name=modelName))
+
+    # Update layout
+    section_title("Validation loss")
+    fig.update_layout(
+        xaxis_title='Epochs',
+        yaxis_title=f'MSE',
+        template='plotly_dark',
+        xaxis=dict(
+            showgrid=True,
+            gridcolor='gray',
+            gridwidth=0.5
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='gray',
+            gridwidth=0.5
+        )
+    )
+
+    # Plot!
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Best validation loss
+    section_title("Minimum validation loss")
+    for modelName in modelNames:
+        st.write(
+            f"{modelName}: {round(min(baseHistoryDict[modelName]['val_loss']),7)}")
 
     def MinMaxScaleInverse(y, minScale, maxScale, col):
         if col == 'Confirmed':
@@ -380,14 +460,14 @@ if trainBtn:
         y = y*(maxScale[c][col]-minScale[c][col])+minScale[c][col]
         return y
 
-    modelNames = baseModelDict.keys()
     predDict = {modelName: DataX_valid for modelName in modelNames}
     for modelName in modelNames:
 
         for day in range(nextSteps):
             _DataX_valid = predDict[modelName][:, -14:, :]
             # print(_DataX_valid.shape)
-            y_pred = baseModelDict[modelName].predict(_DataX_valid, verbose=0)
+            y_pred = baseModelDict[modelName].predict(
+                _DataX_valid, verbose=0)
 
             # Concatenate the arrays along the second axis (axis=1)
             predDict[modelName] = np.concatenate(
@@ -408,11 +488,14 @@ if trainBtn:
     # Lin chart 1 : predicttion
     days = list(range(1, 15))
 
+    # Create a list of dates from startDate to startDate
+    x_dates = [startDate + datetime.timedelta(days=i) for i in range(14)]
+
     # Create the figure
     fig = go.Figure()
 
-    initX = days[:-nextSteps]
-    predX = days[-nextSteps:]
+    initX = x_dates[:-nextSteps]
+    predX = x_dates[-nextSteps:]
 
     # Add the first trace
     fig.add_trace(go.Scatter(
@@ -478,10 +561,10 @@ if trainBtn:
         ))
 
         fig.add_trace(go.Scatter(x=x_dates, y=upper_bound,
-                      mode='lines', showlegend=False, name="Upper bound", line=dict(color='red', width=0.5)))
+                                 mode='lines', showlegend=False, name="Upper bound", line=dict(color='red', width=0.5)))
 
         fig.add_trace(go.Scatter(x=x_dates, y=lower_bound,
-                      mode='lines', showlegend=False, name="Lower bound", line=dict(color='red', width=0.5)))
+                                 mode='lines', showlegend=False, name="Lower bound", line=dict(color='red', width=0.5)))
 
         # Add trace for the data points
         fig.add_trace(go.Scatter(
@@ -523,3 +606,4 @@ if trainBtn:
 
         st.write(f"Mean: {readableFormatNumber(mean)}")
         st.write(f"variance: {readableFormatNumber(variance)}")
+        st.write(f"Standard deviation: {readableFormatNumber(std_dev)}")
