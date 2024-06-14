@@ -305,8 +305,8 @@ def train_and_save_model(model_path, Final_model, DataX_train, y_train):
     list_loss_val = []
 
     BatchSize = 128
-    StartEpochs = 1
-    Epochs = 1
+    StartEpochs = 30
+    Epochs = 150
 
     opt = tf.keras.optimizers.Adam(learning_rate=1e-2)
 
