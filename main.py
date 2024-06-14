@@ -14,6 +14,9 @@ import plotly.graph_objects as go
 import gc
 import time
 import datetime
+import locale
+
+locale.setlocale(locale.LC_ALL, '')
 
 initInputDict = {'D1': 4479866.23623163,
                  'D2': 4483912.32937843,
@@ -261,20 +264,18 @@ class StreamlitCallback(tf.keras.callbacks.Callback):
         progress = (epoch + 1) / self.totalEpochs
         self.progress_bar.progress(progress)
         self.loss_text.text(
-            f"Epoch {epoch+1}/{self.totalEpochs}: loss: {logs['loss']:.6f}, val Loss: {logs['val_loss']:.6f} lr: {tf.keras.backend.get_value(self.model.optimizer.lr):.7f}")
+            f"Epoch {epoch+1}/{self.totalEpochs}: loss: {logs['loss']:.6f}, val_loss: {logs['val_loss']:.6f}, lr: {tf.keras.backend.get_value(self.model.optimizer.lr):.7f}")
         # self.val_loss_text.text(f"")
         # self.lr_text.text(
         #     f"Learning Rate: {tf.keras.backend.get_value(self.model.optimizer.lr):.6f}")
 
 
-def train_and_save_model(baseModelName, Final_model, DataX_train, y_train, country, status):
-    st.write(baseModelName)
+def train_and_save_model(model_path, Final_model, DataX_train, y_train):
 
     BatchSize = 128
     StartEpochs = 30
     Epochs = 150
 
-    model_path = f"Models/{country}_{baseModelName}_{status}.h5"
     opt = tf.keras.optimizers.Adam(learning_rate=1e-2)
 
     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
@@ -293,7 +294,8 @@ def train_and_save_model(baseModelName, Final_model, DataX_train, y_train, count
         filepath=model_path,
         save_best_only=True,
         save_weights_only=False,
-        monitor='val_loss', mode='min',
+        monitor='val_loss',
+        mode='min',
         save_freq="epoch"
     )
 
@@ -328,30 +330,27 @@ def train_and_save_model(baseModelName, Final_model, DataX_train, y_train, count
                            batch_size=BatchSize,
                            epochs=Epochs,
                            verbose=0,
-                           callbacks=[checkpoint,
-                                      reduce_lr,
-                                      #   lr_logger,
-                                      streamlit_callback
-                                      ],
+                           callbacks=[checkpoint, reduce_lr,
+                                      streamlit_callback],
                            shuffle=True)
 
-    best_model = tf.keras.models.load_model(model_path)
-
-    baseModelDict[baseModelName] = best_model
+    # Clear session
+    K.clear_session()
 
     # Clear the session to free up memory
     tf.keras.backend.clear_session()
 
-    # Delete temporary files
-    if os.path.exists(model_path):
-        os.remove(model_path)
-
     # Delete objects
-    del Final_model, opt, streamlit_callback, hist, reduce_lr, lr_scheduler, checkpoint, best_model
-
+    del Final_model, opt, streamlit_callback, hist, reduce_lr, lr_scheduler, checkpoint
+    Final_model = None
+    opt = None
+    streamlit_callback = None
+    hist = None
+    reduce_lr = None
+    lr_scheduler = None
+    checkpoint = None
     gc.collect()
     time.sleep(1)
-    return baseModelDict
 
 
 trainBtn = st.button('Submit')
@@ -359,8 +358,18 @@ if trainBtn:
     baseModelDict = dict()
 
     for baseModelName, Final_model in pretrainModelDict[status]:
-        baseModelDict = train_and_save_model(baseModelName, Final_model,
-                                             DataX_train, y_train, country, status)
+
+        st.write(baseModelName)
+        model_path = f"Models/{country}_{baseModelName}_{status}.h5"
+
+        train_and_save_model(model_path, Final_model, DataX_train, y_train)
+
+        if os.path.exists(model_path):
+            best_model = tf.keras.models.load_model(model_path)
+            baseModelDict[baseModelName] = best_model
+            del best_model
+            os.remove(model_path)
+            gc.collect()
 
     def MinMaxScaleInverse(y, minScale, maxScale, col):
         if col == 'Confirmed':
@@ -390,13 +399,14 @@ if trainBtn:
 
     del baseModelDict, pretrainModelDict
     gc.collect()
+
     # ----------------------------- Results -----------------------------------
     st.write('-----------')
 
     st.subheader("Model Results", divider='rainbow')
 
     # Lin chart 1 : predicttion
-    days = list(range(1, len(predDict[modelName]) + 1))
+    days = list(range(1, 15))
 
     # Create the figure
     fig = go.Figure()
@@ -449,9 +459,6 @@ if trainBtn:
         # Calculate upper and lower bounds for the confidence interval
         upper_bound = [i + 1.96 * std_dev for i in data]
         lower_bound = [i - 1.96 * std_dev for i in data]
-
-        # Create an x-axis representing the index of the data points
-        # x = list(range(1, len(data) + 1))
 
         # Create a list of dates from startDate to startDate + 13 days
         x_dates = [startDate +
@@ -508,5 +515,11 @@ if trainBtn:
         # Show the figure
         st.plotly_chart(fig, use_container_width=True)
 
-        st.write(f"Mean: {round(mean,1)}")
-        st.write(f"variance: {round(variance,1)}")
+        def readableFormatNumber(number):
+            if math.isnan(number):
+                return "NaN"
+            else:
+                return locale.format_string("%d", round(number, 1), grouping=True)
+
+        st.write(f"Mean: {readableFormatNumber(mean)}")
+        st.write(f"variance: {readableFormatNumber(variance)}")
