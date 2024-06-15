@@ -3,8 +3,7 @@ import tensorflow as tf
 import pandas as pd
 import numpy as np
 from sklearn.utils import shuffle
-from sklearn.metrics import mean_squared_error
-from sklearn.metrics import mean_absolute_error
+
 from tensorflow.keras import backend as K
 import math
 import os
@@ -18,20 +17,20 @@ np.random.seed(1992)
 tf.keras.utils.set_random_seed(1992)
 locale.setlocale(locale.LC_ALL, '')
 
-initInputDict = {'D1': 4479866.23623163,
-                 'D2': 4483912.32937843,
-                 'D3': 4487818.9020719,
-                 'D4': 4491864.9952187,
-                 'D5': 4495632.04745883,
-                 'D6': 4499259.57924562,
-                 'D7': 4503026.63148574,
-                 'D8': 4506933.20417921,
-                 'D9': 4510421.21551266,
-                 'D10': 4513769.70639278,
-                 'D11': 4516978.67681955,
-                 'D12': 4520466.688153,
-                 'D13': 4523536.13812644,
-                 'D14': 4526605.58809988,
+initInputDict = {'D1': 4479866,
+                 'D2': 4483912,
+                 'D3': 4487818,
+                 'D4': 4491864,
+                 'D5': 4495632,
+                 'D6': 4499259,
+                 'D7': 4503026,
+                 'D8': 4506933,
+                 'D9': 4510421,
+                 'D10': 4513769,
+                 'D11': 4516978,
+                 'D12': 4520466,
+                 'D13': 4523536,
+                 'D14': 4526605,
                  }
 
 
@@ -261,6 +260,7 @@ DataX_valid = np.array([data_test])
 # ----------------------------------- Load pretrain model -----------------------------
 @st.cache_resource
 def getPretrainModel(status):
+
     # Load the trained model
     # Fetch data from URL here, and then clean it up.
     pretrainModelDict = dict()
@@ -480,7 +480,7 @@ if submitBtn:
     for modelName in modelNames:
 
         fig.add_trace(go.Scatter(
-            x=x, y=baseHistoryDict[modelName]['val_loss'], mode='lines+markers', name=modelName))
+            x=x[50:], y=baseHistoryDict[modelName]['val_loss'][50:], mode='lines+markers', name=modelName))
 
     # Update layout
     section_title("Validation loss")
@@ -543,25 +543,20 @@ if submitBtn:
 
     st.subheader("Model Results", divider='rainbow')
 
-    # Lin chart 1 : predicttion
-    days = list(range(1, 15))
-
     # Create a list of dates from startDate to startDate
-    x_dates = [startDate + datetime.timedelta(days=i) for i in range(14)]
+    x_dates = [startDate + datetime.timedelta(days=i)
+               for i in range(len(predDict['LSTM']))]
 
     # Create the figure
     fig = go.Figure()
 
-    initX = x_dates[:-nextSteps]
-    predX = x_dates[-nextSteps:]
-
     # Add the first trace
     fig.add_trace(go.Scatter(
-        x=initX, y=predDict['LSTM'][:-nextSteps], mode='lines+markers', name='Inputs'))
+        x=x_dates[:14], y=predDict['LSTM'][:14], mode='lines+markers', name='Inputs'))
 
     for modelName in modelNames:
         fig.add_trace(go.Scatter(
-            x=predX, y=predDict[modelName][-nextSteps:], mode='lines+markers', name=modelName))
+            x=x_dates[14:], y=predDict[modelName][14:], mode='lines+markers', name=modelName))
 
     # Update layout
     fig.update_layout(
@@ -662,6 +657,6 @@ if submitBtn:
             else:
                 return locale.format_string("%d", round(number, 1), grouping=True)
 
-        st.write(f"Mean: {readableFormatNumber(mean)}")
-        st.write(f"variance: {readableFormatNumber(variance)}")
-        st.write(f"Standard deviation: {readableFormatNumber(std_dev)}")
+        st.write(f"**Mean:** {readableFormatNumber(mean)}")
+        st.write(f"**variance:** {readableFormatNumber(variance)}")
+        st.write(f"**Standard deviation:** {readableFormatNumber(std_dev)}")
