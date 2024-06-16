@@ -7,6 +7,8 @@ import pandas as pd
 import gc
 from sklearn.utils import shuffle
 import os
+import time
+import psutil
 
 
 class StreamlitCallback(tf.keras.callbacks.Callback):
@@ -266,6 +268,12 @@ def getPredictionResults(baseModelName, numberInputList, nextSteps, minScale, ma
 
 
 if __name__ == "__main__":
+
+    for proc in psutil.process_iter(['pid', 'name']):
+        if 'python' in proc.info['name']:
+            print(f"PID: {proc.info['pid']}, Name: {proc.info['name']}")
+
+    # time.sleep(20)
     modelPath = sys.argv[1]
     displayID = sys.argv[2]
     country = sys.argv[3]

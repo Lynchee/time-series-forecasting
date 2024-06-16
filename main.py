@@ -282,16 +282,17 @@ if submitBtn:
 
     st.write('-----------')
     if os.path.exists(predID):
-        for _ in range(10):
+        for _ in range(100):
             # Read from the JSON file
             with open(predID, 'r') as json_file:
                 predDict = json.load(json_file)
 
             if len(predDict.keys()) == 4:
+                print(predDict.keys())
                 os.remove(predID)
                 break
             time.sleep(1)
-
+    print(predDict.keys())
     st.subheader("Model Results", divider='rainbow')
 
     # Create a list of dates from startDate to startDate
