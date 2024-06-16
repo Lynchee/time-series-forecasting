@@ -206,7 +206,7 @@ if submitBtn:
         epochth = 1
         resultDisplay = st.empty()
 
-        for i in range(600):
+        for i in range(3600):
             if os.path.exists(displayID):
                 try:
                     with open(displayID, 'r') as f:
