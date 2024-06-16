@@ -9,6 +9,8 @@ from sklearn.utils import shuffle
 import os
 import time
 # import psutil
+np.random.seed(1992)
+tf.keras.utils.set_random_seed(1992)
 
 
 class StreamlitCallback(tf.keras.callbacks.Callback):
