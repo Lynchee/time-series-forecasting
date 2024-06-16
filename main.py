@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 import streamlit as st
 import pandas as pd
 import math
@@ -195,7 +196,8 @@ if submitBtn:
 
         # Run the training script
         process = subprocess.Popen(
-            ["python", "transfer_learning.py", modelPath,
+
+            [sys.executable, os.path.abspath("transfer_learning.py"), modelPath,
              displayID, country, baseModelName, status, numberInputListStr,
              nextStepsStr, predID, firstEpochsStr, secondEpochsStr])
 
