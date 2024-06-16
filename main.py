@@ -1,20 +1,15 @@
+import json
+import subprocess
 import streamlit as st
-import tensorflow as tf
 import pandas as pd
-import numpy as np
-from sklearn.utils import shuffle
-
-from tensorflow.keras import backend as K
 import math
 import os
-import plotly.figure_factory as ff
 import plotly.graph_objects as go
 import gc
 import time
 import datetime
 import locale
-np.random.seed(1992)
-tf.keras.utils.set_random_seed(1992)
+
 locale.setlocale(locale.LC_ALL, '')
 
 initInputDict = {'D1': 4479866,
@@ -165,320 +160,94 @@ with colD14:
 st.write('-----------')
 
 
-# ---------------------------- Preproces data --------------------------------
-def MinMaxScale(df):
-    df_norm = pd.DataFrame([])
-    min = []
-    max = []
-    MinMaxScaleColumnName = []
-    for c in df.columns:
-        new_df = (df[[c]]-df[[c]].min())/(df[[c]].max()-df[[c]].min())
-        min.append(df[[c]].min())
-        max.append(df[[c]].max())
-        MinMaxScaleColumnName.append(c)
-
-        df_norm = pd.concat([df_norm, new_df], axis=1)
-
-    return df_norm, min, max
-
-
-def MinMaxScaleForTest(df, minScale, maxScale):
-    df_norm = pd.DataFrame([])
-    for i, c in enumerate(df.columns):
-        new_df = (df[[c]]-minScale[i][c])/(maxScale[i][c]-minScale[i][c])
-        df_norm = pd.concat([df_norm, new_df], axis=1)
-
-    return df_norm
-
-
-def generate_data(X, sequence_length=14, step=1):
-    X_local = []
-    y_local = []
-    for start in range(0, len(X) - sequence_length-1, step):
-        end = start + sequence_length
-        X_local.append(X[start:end])
-        y_local.append(X[end][0])
-    return np.array(X_local), np.array(y_local)
-
-
-_df_Confirmed = df_Confirmed[df_Confirmed['Country/Region']
-                             == country].drop(columns="Country/Region")
-_df_Deaths = df_Deaths[df_Deaths['Country/Region']
-                       == country].drop(columns="Country/Region")
-
-_df_Confirmed = _df_Confirmed.T
-_df_Confirmed.columns = ["Confirmed"]
-df_Confirmed_train = _df_Confirmed.iloc[:-30]
-df_Confirmed_test = _df_Confirmed.iloc[-45:]
-
-_df_Deaths = _df_Deaths.T
-_df_Deaths.columns = ["Deaths"]
-df_Deaths_train = _df_Deaths.iloc[:-30]
-df_Deaths_test = _df_Deaths.iloc[-45:]
-
-data = pd.concat([df_Confirmed_train, df_Deaths_train], axis=1)
-data, minScale, maxScale = MinMaxScale(data)
-
-data_test = pd.concat([df_Confirmed_test, df_Deaths_test], axis=1)
-data_test = MinMaxScaleForTest(data_test, minScale, maxScale)
-
-X_sequence, y = generate_data(data.loc[:, [status]].values)
-X_sequence_test, y_test = generate_data(data_test.loc[:, [status]].values)
-
-
-X_sequence, y = shuffle(X_sequence, y, random_state=0)
-DataX_train, y_train = X_sequence, y
-
-# prerpocessing the input data before fine-tuning a pretrained model
-numberInputList = []
-for i in range(14):
-    numberInputList.append(st.session_state[f'D{i+1}'])
-
-
-_data_test = pd.DataFrame({status: numberInputList})
-
-
-def MinMaxScaleForTest(df, minScale, maxScale, status):
-    if status == 'Confirmed':
-        i = 0
-    elif status == 'Deaths':
-        i = 1
-
-    df_norm = pd.DataFrame([])
-    for c in df.columns:
-        new_df = (df[[c]]-minScale[i][c]) / \
-            (maxScale[i][c]-minScale[i][c])
-        df_norm = pd.concat([df_norm, new_df], axis=1)
-
-    return df_norm
-
-
-data_test = MinMaxScaleForTest(_data_test, minScale, maxScale, status)
-DataX_valid = np.array([data_test])
-
-
-# ----------------------------------- Load pretrain model -----------------------------
-@st.cache_resource
-def getPretrainModel(status):
-
-    # Load the trained model
-    # Fetch data from URL here, and then clean it up.
-    pretrainModelDict = dict()
-
-    if status == "Deaths":
-        pretrainModelDict["Deaths"] = [
-            ('LSTM', tf.keras.models.load_model(
-                'UCovid-19PMFit/weights/Deaths/ModelWeight_LSTM_PretrainedModel(Deaths).h5')),
-            ('GRU', tf.keras.models.load_model(
-                'UCovid-19PMFit/weights/Deaths/ModelWeight_GRU_PretrainedModel(Deaths).h5')),
-            ('BiLSTM', tf.keras.models.load_model(
-                'UCovid-19PMFit/weights/Deaths/ModelWeight_BiLSTM_PretrainedModel(Deaths).h5')),
-            ('BiGRU', tf.keras.models.load_model(
-                'UCovid-19PMFit/weights/Deaths/ModelWeight_BiGRU_PretrainedModel(Deaths).h5'))]
-    elif status == 'Confirmed':
-        pretrainModelDict['Confirmed'] = [
-            ('LSTM', tf.keras.models.load_model(
-                'UCovid-19PMFit/weights/Confirmed/ModelWeight_LSTM_PretrainedModel(Confirmed).h5')),
-            ('GRU', tf.keras.models.load_model(
-                'UCovid-19PMFit/weights/Confirmed/ModelWeight_GRU_PretrainedModel(Confirmed).h5')),
-            ('BiLSTM', tf.keras.models.load_model(
-                'UCovid-19PMFit/weights/Confirmed/ModelWeight_BiLSTM_PretrainedModel(Confirmed).h5')),
-            ('BiGRU', tf.keras.models.load_model(
-                'UCovid-19PMFit/weights/Confirmed/ModelWeight_BiGRU_PretrainedModel(Confirmed).h5'))]
-    return pretrainModelDict
-
-
-pretrainModelDict = getPretrainModel(status)
-
-
 # ------------------------------------- Train model -----------------------------------
 st.subheader("Fine-Tune Pretrained Models", divider='rainbow')
 
 
-def MinMaxScaleInverse(y, minScale, maxScale, col, c):
-    y = y*(maxScale[c][col]-minScale[c][col])+minScale[c][col]
-    return y
+numberInputList = []
+for i in range(14):
+    numberInputList.append(st.session_state[f'D{i+1}'])
 
-
-def S_mean_absolute_percentage_error(y_true, y_pred):
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    return np.mean(np.abs((y_true - y_pred) / ((np.abs(y_true)+np.abs(y_pred))/2))) * 100
-
-
-def mean_absolute_percentage_error(y_true, y_pred):
-    diff = K.abs((y_true - y_pred) /
-                 K.clip(K.abs(y_true), K.epsilon(), None))
-    return 100. * K.mean(diff, axis=-1)
-
-
-def root_mean_squared_log_error(y_true, y_pred):
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    return (np.mean((np.log(y_true)-np.log(y_pred))**2))**(1/2)
-
-
-def explained_variance(y_true, y_pred):
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    return 1-(np.var(y_pred-y_true)/np.var(y_true))
-
-
-class LearningRateLogger(tf.keras.callbacks.Callback):
-    def __init__(self):
-        super().__init__()
-        self.learning_rates = []
-
-    def on_epoch_begin(self, epoch, logs=None):
-        lr = self.model.optimizer.learning_rate  # Get the current learning rate
-        self.learning_rates.append(lr)
-        # print(f'Epoch {epoch + 1}: Learning Rate = {lr.numpy()}')
-
-
-def lr_schedule(epoch, initial_lr=0.01, warmup_epochs=30, warmup_factor=0.5):
-    if epoch < warmup_epochs:
-        return initial_lr * (warmup_factor + (1 - warmup_factor) * epoch / warmup_epochs)
-    return initial_lr
-
-
-class StreamlitCallback(tf.keras.callbacks.Callback):
-    def __init__(self, totalEpochs, display_id):
-        super().__init__()
-        self.totalEpochs = totalEpochs
-        self.display_id = display_id
-        self.progress_bar = st.progress(0)
-        self.loss_text = st.empty()
-        # self.val_loss_text = st.empty()
-        # self.lr_text = st.empty()
-
-    def on_epoch_end(self, epoch, logs=None):
-        progress = (epoch + 1) / self.totalEpochs
-        self.progress_bar.progress(progress)
-        self.loss_text.text(
-            f"Epoch {epoch+1}/{self.totalEpochs}: loss: {logs['loss']:.6f}, val_loss: {logs['val_loss']:.6f}, lr: {tf.keras.backend.get_value(self.model.optimizer.lr):.7f}")
-        # self.val_loss_text.text(f"")
-        # self.lr_text.text(
-        #     f"Learning Rate: {tf.keras.backend.get_value(self.model.optimizer.lr):.6f}")
-
-
-def train_and_save_model(model_path, Final_model, DataX_train, y_train):
-    list_loss_train = []
-    list_loss_val = []
-
-    BatchSize = 128
-    StartEpochs = 30
-    Epochs = 150
-
-    opt = tf.keras.optimizers.Adam(learning_rate=1e-2)
-
-    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
-        monitor='val_loss',
-        factor=0.5,
-        patience=15,
-        min_lr=1e-15,
-        verbose=0
-    )
-
-    lr_scheduler = tf.keras.callbacks.LearningRateScheduler(
-        lambda epoch: lr_schedule(epoch)
-    )
-
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(
-        filepath=model_path,
-        save_best_only=True,
-        save_weights_only=False,
-        monitor='val_loss',
-        mode='min',
-        save_freq="epoch"
-    )
-
-    Final_model.compile(loss='mean_squared_error', optimizer=opt)
-
-    # Custom callback for Streamlit
-    streamlit_callback = StreamlitCallback(StartEpochs, 'training_display')
-
-    hist = Final_model.fit(
-        DataX_train,
-        y_train,
-        validation_split=0.2,
-        batch_size=BatchSize,
-        epochs=StartEpochs,
-        verbose=0,
-        callbacks=[checkpoint, lr_scheduler, streamlit_callback],
-        shuffle=True
-    )
-
-    list_loss_train = list_loss_train + hist.history['loss']
-    list_loss_val = list_loss_val + hist.history['val_loss']
-
-    # Additional garbage collection to ensure memory is freed
-    gc.collect()
-    opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
-    Final_model.compile(loss='mean_squared_error',
-                        optimizer=opt)
-
-    # Custom callback for Streamlit
-    streamlit_callback = StreamlitCallback(Epochs, 'training_display')
-
-    hist = Final_model.fit(DataX_train,
-                           y_train,
-                           validation_split=0.2,
-                           batch_size=BatchSize,
-                           epochs=Epochs,
-                           verbose=0,
-                           callbacks=[checkpoint, reduce_lr,
-                                      streamlit_callback],
-                           shuffle=True)
-
-    list_loss_train = list_loss_train + hist.history['loss']
-    list_loss_val = list_loss_val + hist.history['val_loss']
-
-    history = {"loss": list_loss_train,
-               'val_loss': list_loss_val}
-    # Clear the session to free up memory
-    tf.keras.backend.clear_session()
-
-    # Delete objects
-    del Final_model, opt, streamlit_callback, hist, reduce_lr, lr_scheduler, checkpoint, list_loss_train, list_loss_val
-    Final_model = None
-    opt = None
-    streamlit_callback = None
-    hist = None
-    reduce_lr = None
-    lr_scheduler = None
-    checkpoint = None
-    gc.collect()
-    time.sleep(1)
-    return history
-
+numberInputListStr = str(numberInputList)
+nextStepsStr = str(nextSteps)
 
 submitBtn = st.button('Submit')
 
+excID = time.time()
+predID = f"{excID}_predictions.json"
+baseModelNames = ['LSTM', 'GRU', 'BiLSTM', 'BiGRU']
+firstEpochs = 30
+secondEpochs = 150
+totalEpochs = firstEpochs + secondEpochs
+
+firstEpochsStr = str(firstEpochs)
+secondEpochsStr = str(secondEpochs)
 if submitBtn:
 
     baseModelDict = dict()
     baseHistoryDict = dict()
-    for baseModelName, Final_model in pretrainModelDict[status]:
+    for baseModelName in baseModelNames:
 
         st.write(baseModelName)
-        model_path = f"Models/{country}_{baseModelName}_{status}.h5"
 
-        history = train_and_save_model(
-            model_path, Final_model, DataX_train, y_train)
+        modelPath = f"Models/{excID}_{country}_{baseModelName}_{status}.h5"
+        displayID = f"{excID}_{country}_{baseModelName}_{status}.json"
 
-        if os.path.exists(model_path):
+        # Run the training script
+        process = subprocess.Popen(
+            ["python", "transfer_learning.py", modelPath,
+             displayID, country, baseModelName, status, numberInputListStr,
+             nextStepsStr, predID, firstEpochsStr, secondEpochsStr])
 
-            best_model = tf.keras.models.load_model(model_path)
-            baseModelDict[baseModelName] = best_model
-            baseHistoryDict[baseModelName] = history
-            del best_model
-            os.remove(model_path)
-            gc.collect()
+        # Display progress
+        progress_bar = st.progress(0)
+        epochth = 1
+        resultDisplay = st.empty()
 
-    modelNames = baseModelDict.keys()
+        for i in range(600):
+            if os.path.exists(displayID):
+                try:
+                    with open(displayID, 'r') as f:
+                        if os.path.getsize(displayID) > 0:
+                            progress = json.load(f)
+                        else:
+                            continue
+                except json.JSONDecodeError:
+                    # Wait a bit and try again if there's a JSON error
+                    time.sleep(0.1)
+                    continue
 
-    # Create the figure
+                if process:
+                    newProgress = None
+                    for p in progress:
+                        if p['epoch'] == epochth:
+                            newProgress = p
+                            break
+                    if newProgress:
+
+                        progress_bar.progress(
+                            int(newProgress['epoch']) / int(newProgress['total_epochs']))
+                        resultDisplay.text(
+                            f"Epoch {newProgress['epoch']}/{newProgress['total_epochs']}, Loss: {newProgress['loss']}, Val Loss: {newProgress['val_loss']}, lr: {newProgress['lr']}")
+
+                        epochth += 1
+                        if epochth > totalEpochs:
+                            loss = []
+                            val_loss = []
+                            for obj in progress:
+                                loss.append(obj['loss'])
+                                val_loss.append(obj['val_loss'])
+                            baseHistoryDict[baseModelName] = {
+                                'loss': loss, 'val_loss': val_loss}
+                            os.remove(displayID)
+                            break
+            time.sleep(0.1)
+
+    # ----------------------------- Results -----------------------------------
+     # Create the figure
     fig = go.Figure()
     x = list(range(1, len(baseHistoryDict["LSTM"]['val_loss'])+1))
-    for modelName in modelNames:
-
+    for modelName in baseModelNames:
         fig.add_trace(go.Scatter(
             x=x[50:], y=baseHistoryDict[modelName]['val_loss'][50:], mode='lines+markers', name=modelName))
 
@@ -505,41 +274,21 @@ if submitBtn:
 
     # Best validation loss
     section_title("Minimum validation loss")
-    for modelName in modelNames:
+    for modelName in baseModelNames:
         st.write(
-            f"{modelName}: {round(min(baseHistoryDict[modelName]['val_loss']),7)}")
+            f"**{modelName}:** {round(min(baseHistoryDict[modelName]['val_loss']),7)}")
 
-    def MinMaxScaleInverse(y, minScale, maxScale, col):
-        if col == 'Confirmed':
-            c = 0
-        elif col == 'Deaths':
-            c = 1
-
-        y = y*(maxScale[c][col]-minScale[c][col])+minScale[c][col]
-        return y
-
-    predDict = {modelName: DataX_valid for modelName in modelNames}
-    for modelName in modelNames:
-
-        for day in range(nextSteps):
-            _DataX_valid = predDict[modelName][:, -14:, :]
-            # print(_DataX_valid.shape)
-            y_pred = baseModelDict[modelName].predict(
-                _DataX_valid, verbose=0)
-
-            # Concatenate the arrays along the second axis (axis=1)
-            predDict[modelName] = np.concatenate(
-                (predDict[modelName], y_pred.reshape(1, 1, 1)), axis=1)
-
-        # Get normal scale back
-        predDict[modelName] = MinMaxScaleInverse(
-            predDict[modelName].flatten(), minScale, maxScale, status)
-
-    del baseModelDict, pretrainModelDict
-    gc.collect()
-
-    # ----------------------------- Results -----------------------------------
     st.write('-----------')
+    if os.path.exists(predID):
+        for _ in range(10):
+            # Read from the JSON file
+            with open(predID, 'r') as json_file:
+                predDict = json.load(json_file)
+
+            if len(predDict.keys()) == 4:
+                os.remove(predID)
+                break
+            time.sleep(1)
 
     st.subheader("Model Results", divider='rainbow')
 
@@ -554,7 +303,7 @@ if submitBtn:
     fig.add_trace(go.Scatter(
         x=x_dates[:14], y=predDict['LSTM'][:14], mode='lines+markers', name='Inputs'))
 
-    for modelName in modelNames:
+    for modelName in baseModelNames:
         fig.add_trace(go.Scatter(
             x=x_dates[14:], y=predDict[modelName][14:], mode='lines+markers', name=modelName))
 
@@ -579,7 +328,7 @@ if submitBtn:
     # Plot!
     st.plotly_chart(fig, use_container_width=True)
 
-    for modelName in modelNames:
+    for modelName in baseModelNames:
 
         data = predDict[modelName]
 
