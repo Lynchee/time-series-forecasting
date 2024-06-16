@@ -385,7 +385,7 @@ if submitBtn:
         # Update layout
         fig.update_layout(
             title=modelName,
-            xaxis_title='Day',
+            xaxis_title='Days',
             yaxis_title=f'Number of {status} Over Days',
             template='plotly_dark',
             xaxis=dict(
