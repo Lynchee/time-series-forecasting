@@ -296,3 +296,4 @@ if __name__ == "__main__":
     # Prdiction
     getPredictionResults(baseModelName, numberInputList,
                          nextSteps, minScale, maxScale, status, modelPath, predID)
+    print('End')
